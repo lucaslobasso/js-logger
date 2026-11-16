@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.claude/worktrees/
+.claude/settings.local.json
+examples/node/logs.jsonl
+examples/aspnet-core/bin/
+examples/aspnet-core/obj/
