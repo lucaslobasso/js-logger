@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jsLogger demo</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --dim: #8b949e;
+      --info: #3fb950; --warn: #d29922; --error: #f85149; --debug: #58a6ff; --fatal: #db61a2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 1040px; margin: 0 auto; padding: 28px 20px; display: grid; gap: 20px; grid-template-columns: 300px minmax(0, 1fr); }
+    @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+    h1 { grid-column: 1 / -1; margin: 0; font-size: 22px; }
+    h1 small { color: var(--dim); font-weight: 400; font-size: 15px; margin-left: 8px; }
+    section { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+    button { display: block; width: 100%; text-align: left; margin: 0 0 8px; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--line); background: #21262d; color: var(--text); font: 14px ui-monospace, Consolas, monospace; cursor: pointer; }
+    button:hover { border-color: var(--dim); }
+    #events { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+    #events li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+    .row { display: flex; gap: 10px; align-items: baseline; font: 13px ui-monospace, Consolas, monospace; }
+    .lvl { flex: none; font-weight: 700; width: 46px; text-transform: uppercase; }
+    .src { color: var(--dim); width: 140px; flex: none; }
+    .msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    pre { margin: 8px 0 0; padding: 10px; background: var(--bg); border-radius: 6px; overflow: auto; max-height: 360px; white-space: pre-wrap; overflow-wrap: anywhere;
+      font: 12px/1.45 ui-monospace, Consolas, monospace; color: #c9d1d9; }
+    .empty { color: var(--dim); }
+  </style>
+  <script src="/jsLogger.js"></script>
+  <script>
+    const log = jsLogger.init({ endpoint: '/logs', app: 'demo-shop', release: '2.0.0', flushInterval: 500 });
+    log.setUser({ id: 42, plan: 'pro' });
+  </script>
+</head>
+<body>
+<main>
+  <h1>jsLogger demo <small>click a button: the event is batched to <code>POST /logs</code></small></h1>
+  <section>
+    <h2>Trigger</h2>
+    <button id="throw">throw new Error()</button>
+    <button id="reject">Promise.reject()</button>
+    <button id="fetch404">fetch('/api/cart') → 404</button>
+    <button id="img">&lt;img src="missing.png"&gt;</button>
+    <button id="info">log.info('checkout started')</button>
+    <button id="secret">log.warn(… password=…)</button>
+  </section>
+  <section>
+    <h2>Received by the server</h2>
+    <ul id="events"><li class="empty">Nothing yet.</li></ul>
+  </section>
+</main>
+<script>
+  const on = (id, fn) => document.getElementById(id).addEventListener('click', fn);
+  on('throw', () => setTimeout(() => { JSON.parse('{ "cart": oops }'); }));
+  on('reject', () => { Promise.reject(new Error('Payment provider timed out', { cause: new Error('ETIMEDOUT') })); });
+  on('fetch404', () => fetch('/api/cart', { method: 'POST' }));
+  on('img', () => { const i = new Image(); i.src = '/img/missing.png'; document.body.appendChild(i); i.hidden = true; });
+  on('info', () => log.info('checkout started', { items: 3, total: 59.9 }));
+  on('secret', () => log.warn('login retry for ana@example.com password=hunter2', { token: 'abc123' }));
+
+  const open = new Set();
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  async function refresh() {
+    const events = await (await fetch('/logs')).json();
+    const list = document.getElementById('events');
+    if (!events.length) return;
+    list.innerHTML = events.map((e) => `
+      <li data-id="${e.receivedAt}${e.fingerprint}">
+        <div class="row"><span class="lvl" style="color:var(--${e.level})">${e.level}</span>
+          <span class="src">${e.source}</span><span class="msg">${esc(e.message)}</span></div>
+        ${open.has(e.receivedAt + e.fingerprint) ? `<pre>${esc(JSON.stringify(e, null, 2))}</pre>` : ''}
+      </li>`).join('');
+  }
+  document.getElementById('events').addEventListener('click', (ev) => {
+    const li = ev.target.closest('li[data-id]');
+    if (!li) return;
+    const id = li.dataset.id;
+    open.has(id) ? open.delete(id) : open.add(id);
+    refresh();
+  });
+  setInterval(refresh, 700);
+</script>
+</body>
+</html>
